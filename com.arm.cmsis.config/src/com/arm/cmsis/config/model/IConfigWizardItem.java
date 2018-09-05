@@ -114,6 +114,16 @@ public interface IConfigWizardItem {
 	 * @param maxBit
 	 */
 	void setMaxBit(int maxBit);
+	
+    /**
+     * Get the identifier accompanying the OPTION tag
+     */
+	String getIdentifier();
+	
+	/**
+	 * Set the identifier accompanying the OPTION tag
+	 */
+	void setIdentifier(String id);
 
 	/**
 	 * @return
@@ -154,6 +164,16 @@ public interface IConfigWizardItem {
 	 * @param value
 	 */
 	void setValue(long value);
+
+    /**
+     * @return this item's Identifier value for enumerated identifier values
+     */
+    String getIdentifierValue();
+
+    /**
+     * @param value
+     */
+    void setIdentifierValue(String value);
 
 	/**
 	 * @return the string, only valid for string item
@@ -226,6 +246,27 @@ public interface IConfigWizardItem {
 	 */
 	void addItem(long key, String value);
 
+    /**
+     * Returns {@code true} if select items are present  
+     */
+    boolean hasItems();
+    
+    /**
+     * @return identifer select items
+     */
+    Map<String, String> getIdentifierItems();
+
+    /**
+     * @param identifer 
+     * @param display label
+     */
+    void addIdentifierItem(String identifier, String label);
+
+    /**
+     * Returns {@code true} if select identifier items are present  
+     */
+    boolean hasIdentifierItems();
+    
 	/**
 	 * @return children
 	 */

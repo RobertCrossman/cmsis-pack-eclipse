@@ -42,7 +42,8 @@ public class Messages extends NLS {
 	public static String ConfigWizardParser_RealIs;
 	public static String ConfigWizardParser_Selection;
 	public static String ConfigWizardParser_SkipTooManyLines;
-	public static String ConfigWizardParser_String;
+    public static String ConfigWizardParser_String;
+    public static String ConfigWizardParser_MacroValue;
 	public static String ConfigWizardParser_SyntaxErrorAtLine;
 	public static String ConfigWizardParser_TooltipForUnknownConfigItem;
 	public static String ConfigWizardParser_Unknown;

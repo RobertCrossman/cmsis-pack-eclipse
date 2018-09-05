@@ -56,7 +56,7 @@ public class NumberRule implements IRule {
 						ch = scanner.read();
 					} while (isHexNumberPart((char) ch));
 					scanner.unread();
-					if (!isValidIdentifierChar((char) ch)) {
+					if (!isValidIdentifierChar((char) ch) || ch == 'U' || ch == 'u' || ch == 'L' || ch == 'l') {
 						return token;
 					}
 					return Token.UNDEFINED;

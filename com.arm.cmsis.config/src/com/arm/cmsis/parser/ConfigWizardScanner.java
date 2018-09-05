@@ -15,6 +15,7 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 import org.eclipse.core.runtime.Assert;
 import org.eclipse.jface.text.BadLocationException;
@@ -35,6 +36,7 @@ public class ConfigWizardScanner extends RuleBasedScanner {
 	public final static String CONFIG_MARK = "__config_mark"; //$NON-NLS-1$
 	public final static String CONFIG_NUMBER = "__config_number"; //$NON-NLS-1$
 	public final static String CONFIG_STRING = "__config_string"; //$NON-NLS-1$
+    public final static String CONFIG_MACROVALUE = "__config_macrovalue"; //$NON-NLS-1$
 	public final static String CONFIG_DEFAULT = "__config_default"; //$NON-NLS-1$
 
 	enum ETokenType {
@@ -57,6 +59,7 @@ public class ConfigWizardScanner extends RuleBasedScanner {
 		VALUE,
 		NUMBER,
 		STRING,
+		MACROVALUE,
 		DEFAULT,
 		UNKNOWN,
 	};
@@ -93,7 +96,7 @@ public class ConfigWizardScanner extends RuleBasedScanner {
 		rules.add(new TagRule(new Token(CONFIG_TAG)));
 		// Value rules
 		rules.add(new SingleLineRule("\"", "\"", new Token(CONFIG_STRING), '\\')); //$NON-NLS-1$ //$NON-NLS-2$
-		rules.add(new NumberRule(new Token(CONFIG_NUMBER)));	// Set this to last !!!
+        rules.add(new MacroValueRule(new Token(CONFIG_MACROVALUE)));    // Set this to nearly last !!!
 
 		setRules(rules.toArray(new IRule[rules.size()]));
 
@@ -140,7 +143,7 @@ public class ConfigWizardScanner extends RuleBasedScanner {
 		}
 
 		if (!commentStarted.get(currLine) && !inBlockComment &&
-				(getTokenType(token) == ETokenType.NUMBER || getTokenType(token) == ETokenType.STRING)) {
+				(getTokenType(token) == ETokenType.NUMBER || getTokenType(token) == ETokenType.STRING || getTokenType(token) == ETokenType.MACROVALUE)) {
 			storeCurrentToken(token);
 			return token;
 		}
@@ -160,7 +163,8 @@ public class ConfigWizardScanner extends RuleBasedScanner {
 				// Return the string and number token
 				if (!inBlockComment &&
 						(getTokenType(token) == ETokenType.STRING ||
-						getTokenType(token) == ETokenType.NUMBER ||
+						getTokenType(token) == ETokenType.MACROVALUE ||
+				        getTokenType(token) == ETokenType.NUMBER ||
 						getTokenType(token) == ETokenType.START)) {
 					storeCurrentToken(token);
 					return token;
@@ -198,11 +202,13 @@ public class ConfigWizardScanner extends RuleBasedScanner {
 			text = fDocument.get(offset, length);
 			if (CONFIG_STRING.equals(getTokenTag(token))) {
 				return text;
+            } else if (CONFIG_MACROVALUE.equals(getTokenTag(token))) {
+                return text;
 			} else if (CONFIG_MARK.equals(getTokenTag(token))) {
-				return text.trim().replaceAll("\\s+"," "); //$NON-NLS-1$ //$NON-NLS-2$
+				return usePattern(ExtraWhitespacePattern, text.trim(), " "); //$NON-NLS-1$ 
 			} else {
 				// Get the pure text in the <>
-				return text.replaceAll("[\\s<>]",""); //$NON-NLS-1$ //$NON-NLS-2$
+				return usePattern(WhitespaceAndDelimitersPattern, text, ""); //$NON-NLS-1$ 
 			}
 		} catch (BadLocationException e) {
 		}
@@ -210,6 +216,13 @@ public class ConfigWizardScanner extends RuleBasedScanner {
 		return null;
 	}
 
+    static Pattern ExtraWhitespacePattern = Pattern.compile("\\s+");  //$NON-NLS-1$ 
+    static Pattern WhitespaceAndDelimitersPattern = Pattern.compile("[\\s<>]");  //$NON-NLS-1$ 
+	static String usePattern(Pattern p, String str, String replacement)
+	{
+	    return p.matcher(str).replaceAll(replacement);
+	}
+	
 	public ETokenType getTokenType(IToken token) {
 		if (token.isEOF()) {
 			return ETokenType.EOC;
@@ -232,7 +245,7 @@ public class ConfigWizardScanner extends RuleBasedScanner {
 		} else if (tag.equals(CONFIG_TAG)) {
 			Assert.isTrue(tokenContent.length() > 0);
 			char type = Character.toLowerCase(tokenContent.charAt(0));
-			if (Character.isDigit(type)) {	// For Selection Token: <0=>
+			if (Character.isDigit(type) | tokenContent.endsWith("=")) {	// For Selection Token: <0=>
 				type = tokenContent.charAt(tokenContent.length()-1);
 			}
 			switch (type) {
@@ -273,6 +286,8 @@ public class ConfigWizardScanner extends RuleBasedScanner {
 			return ETokenType.NUMBER;
 		} else if (tag.equals(CONFIG_STRING)) {
 			return ETokenType.STRING;
+        } else if (tag.equals(CONFIG_MACROVALUE)) {
+            return ETokenType.MACROVALUE;
 		}
 
 		return ETokenType.UNKNOWN;
@@ -374,12 +389,12 @@ public class ConfigWizardScanner extends RuleBasedScanner {
 		}
 		// it is a number/string but it is behind a //
 		if (prevLine == currLine && commentStarted.get(currLine) &&
-				(getTokenType(token) == ETokenType.NUMBER || getTokenType(token) == ETokenType.STRING)) {
+				(getTokenType(token) == ETokenType.NUMBER || getTokenType(token) == ETokenType.STRING || getTokenType(token) == ETokenType.MACROVALUE)) {
 			return true;
 		}
 		// it is a number/string but it is in a block comment
 		if (inBlockComment &&
-				(getTokenType(token) == ETokenType.NUMBER || getTokenType(token) == ETokenType.STRING)) {
+				(getTokenType(token) == ETokenType.NUMBER || getTokenType(token) == ETokenType.STRING || getTokenType(token) == ETokenType.MACROVALUE)) {
 			return true;
 		}
 		return false;

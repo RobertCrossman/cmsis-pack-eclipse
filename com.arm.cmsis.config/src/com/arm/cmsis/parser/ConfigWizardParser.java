@@ -40,7 +40,13 @@ import com.arm.cmsis.utils.Utils;
  */
 public class ConfigWizardParser {
 
-	private static final int LAST_CONFIG_WIZARD_START_LINE = 100;
+    /** used to parse OPTION modifier in "<o.i>" and "<o.x..y>" syntax */
+	private static final String INT_OR_INT_RANGE = "\\d+((\\.\\d+)?|(\\.\\d+(\\.\\.\\d+)?))";
+
+    /** used to parse OPTION modifier in "<o identifier>" syntax */
+    private static final String C_IDENTIFIER = "[a-zA-Z_][a-zA-Z0-9_]*";
+
+    private static final int LAST_CONFIG_WIZARD_START_LINE = 100;
 
 	private ConfigWizardScanner fScanner;
 
@@ -65,7 +71,9 @@ public class ConfigWizardParser {
 
 	private TreeMap<Integer, String> fCommentContainer; // offset->string
 
-	String fParsingErrorMessage;
+	String fParsingErrorMessage = null;
+
+    private boolean showErrorDialog = true;
 
 	/**
 	 * Parser for the config wizard
@@ -104,6 +112,23 @@ public class ConfigWizardParser {
 		setParseRange(0, fDocument.getLength());
 		return doParse();
 	}
+
+	/**
+	 * Control the appears of the MessageDialog for parse errors.
+	 * Defaults to {@code true}.
+	 */
+	public void setShowErrorDialog(boolean show) {
+        this.showErrorDialog = show;
+    }
+	
+	/**
+	 * Return the parsing error message.  Note: callers should rely on
+	 * the {@link #parse()} method to determine the valid nature of the
+	 * parsing.
+     */
+    public String getParsingErrorMessage() {
+        return fParsingErrorMessage;
+    }
 
 	public boolean findConfigurationWizard() {
 		int offset = fDocument.getLength();
@@ -171,7 +196,7 @@ public class ConfigWizardParser {
 				return null;
 			}
 			if (type != ETokenType.TOOLTIP && type != ETokenType.NUMBER && type != ETokenType.STRING
-					&& type != ETokenType.START) {
+			       && type != ETokenType.MACROVALUE && type != ETokenType.START) {
 				parent.addChild(child);
 			}
 		}
@@ -223,9 +248,12 @@ public class ConfigWizardParser {
 		case NUMBER:
 			parseNumber();
 			return parent;
-		case STRING:
-			parseString();
-			return parent;
+        case STRING:
+            parseString();
+            return parent;
+        case MACROVALUE:
+            parseMacroValue();
+            return parent;
 		case START:
 			getNextToken();
 			return parent;
@@ -314,62 +342,79 @@ public class ConfigWizardParser {
 		item.setMaxValue(Long.MAX_VALUE);
 		item.setBase(16);
 
+		// no modifier
 		if (modifier.length() == 0) {
 			return item;
 		}
+		
+		
 		if (modifier.startsWith(".")) { //$NON-NLS-1$
 			modifier = "0" + modifier; //$NON-NLS-1$
 		}
-		if (!modifier.matches("\\d+((\\.\\d+)?|(\\.\\d+(\\.\\.\\d+)?))")) { //$NON-NLS-1$
-			fParsingErrorMessage = Messages.ConfigWizardParser_WrongModificationFormat + modifier;
-			fParsingErrorMessage += Messages.ConfigWizardParser_CorrectTokenFormat
-					+ "\\d+((\\.\\d+)?|(\\.\\d+(\\.\\.\\d+)?))"; //$NON-NLS-1$
-			syntaxError();
-			return null;
-		}
-		try {
-			int dotPos = modifier.indexOf('.');
-			if (dotPos == -1) {
-				dotPos = modifier.length();
-			}
-			int skipNumber = Integer.parseInt(modifier.substring(0, dotPos));
-			item.setSkipNumber(skipNumber);
 
-			if (dotPos == modifier.length()) {
-				return item;
-			}
-
-			int ddotPos = modifier.indexOf(".."); //$NON-NLS-1$
-			if (ddotPos == -1) {
-				ddotPos = modifier.length();
-			}
-			int minBit = Integer.parseInt(modifier.substring(dotPos + 1, ddotPos));
-			item.setMinBit(minBit);
-			item.setMaxBit(minBit);
-
-			if (ddotPos == modifier.length()) {
-				if (item.getItemType() == EItemType.OPTION) {
-					item.setItemType(EItemType.OPTION_CHECK);
-				}
-				return item;
-			}
-
-			int maxBit = Integer.parseInt(modifier.substring(ddotPos + 2, modifier.length()));
-			if (maxBit < minBit) {
-				maxBit = minBit;
-			}
-			item.setMaxBit(maxBit);
-
-			if (item.getMinBit() == item.getMaxBit() && item.getItemType() == EItemType.OPTION) {
-				item.setItemType(EItemType.OPTION_CHECK);
-			}
-
-		} catch (NumberFormatException e) {
-			fParsingErrorMessage = Messages.ConfigWizardParser_FailToParseModifierNumber + modifier;
-			syntaxError();
-			return null;
-		}
-		return item;
+		// match to <o.i> or <o.x..y>
+        if (modifier.matches(INT_OR_INT_RANGE)) { //$NON-NLS-1$
+    		try {
+    			int dotPos = modifier.indexOf('.');
+    			if (dotPos == -1) {
+    				dotPos = modifier.length();
+    			}
+    			int skipNumber = Integer.parseInt(modifier.substring(0, dotPos));
+    			item.setSkipNumber(skipNumber);
+    
+    			if (dotPos == modifier.length()) {
+    				return item;
+    			}
+    
+    			int ddotPos = modifier.indexOf(".."); //$NON-NLS-1$
+    			if (ddotPos == -1) {
+    				ddotPos = modifier.length();
+    			}
+    			int minBit = Integer.parseInt(modifier.substring(dotPos + 1, ddotPos));
+    			item.setMinBit(minBit);
+    			item.setMaxBit(minBit);
+    
+    			if (ddotPos == modifier.length()) {
+    				if (item.getItemType() == EItemType.OPTION) {
+    					item.setItemType(EItemType.OPTION_CHECK);
+    				}
+    				return item;
+    			}
+    
+    			int maxBit = Integer.parseInt(modifier.substring(ddotPos + 2, modifier.length()));
+    			if (maxBit < minBit) {
+    				maxBit = minBit;
+    			}
+    			item.setMaxBit(maxBit);
+    
+    			if (item.getMinBit() == item.getMaxBit() && item.getItemType() == EItemType.OPTION) {
+    				item.setItemType(EItemType.OPTION_CHECK);
+    			}
+    
+    		} catch (NumberFormatException e) {
+    			fParsingErrorMessage = Messages.ConfigWizardParser_FailToParseModifierNumber + modifier;
+    			syntaxError();
+    			return null;
+    		}
+    		return item;
+    		
+        }
+        // match to <o identifier>
+        else if (modifier.matches(C_IDENTIFIER)) {
+            item.setIdentifier(modifier);
+            return item;
+        }
+        
+        if (!modifier.matches(INT_OR_INT_RANGE)) { //$NON-NLS-1$
+            fParsingErrorMessage = Messages.ConfigWizardParser_WrongModificationFormat + modifier;
+            fParsingErrorMessage += Messages.ConfigWizardParser_CorrectTokenFormat
+              + INT_OR_INT_RANGE; //$NON-NLS-1$
+            fParsingErrorMessage += "or " + C_IDENTIFIER;
+            syntaxError();
+        }
+        
+        return null;
+  
 	}
 
 	protected IConfigWizardItem parseOption(IConfigWizardItem item) {
@@ -415,7 +460,8 @@ public class ConfigWizardParser {
 		String numRegex = "(0[xX][0-9a-fA-F]+|\\d+)"; //$NON-NLS-1$
 		String rangeRegex = numRegex + "-" + numRegex + "(:" + numRegex + ")?"; //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 		String selectRegex = numRegex + "="; //$NON-NLS-1$
-		if (!rangeOrSelection.matches(rangeRegex) && !rangeOrSelection.matches(selectRegex)) {
+		String identifierRegex = C_IDENTIFIER + "=";
+		if (!rangeOrSelection.matches(rangeRegex) && !rangeOrSelection.matches(selectRegex) && !rangeOrSelection.matches(identifierRegex)) {
 			return item;
 		}
 
@@ -450,7 +496,9 @@ public class ConfigWizardParser {
 				// selection part, so that
 				// after this method the token is already the next one
 				getNextToken();
-			} else {
+			} 
+			// identifier
+			else {
 				item = parseSelection(item);
 				return item;
 			}
@@ -472,17 +520,34 @@ public class ConfigWizardParser {
 		while (cType == ETokenType.VALUE) {
 			String value = fScanner.getTokenContent(cToken);
 			int equPos = value.indexOf('=');
+			String tokenStr = value.substring(0, equPos);
 
 			int radix = 10;
-			String number = value.substring(0, equPos).toLowerCase();
+            String number = tokenStr.toLowerCase();
 			if (number.startsWith("0x")) { //$NON-NLS-1$
 				radix = 16;
 				number = number.substring(2);
 			}
-			long key = Long.parseLong(number, radix);
-			String name = fScanner.readString();
-			parent.addItem(key, name);
-
+			
+			boolean foundLong = false;
+			try {
+    			long key = Long.parseLong(number, radix);
+    			String name = fScanner.readString();
+    			parent.addItem(key, name);
+    			foundLong = true;
+			}
+			catch (Exception ex)
+			{
+			    // ignoring Long parse error, check for Identifier
+			}
+			
+			// not a Long, try Identifier
+			if (foundLong == false && tokenStr.matches(C_IDENTIFIER))
+			{
+                String label = fScanner.readString();
+                parent.addIdentifierItem(tokenStr, label);
+			}
+			
 			getNextToken();
 		}
 
@@ -616,6 +681,41 @@ public class ConfigWizardParser {
 		getNextToken();
 	}
 
+    protected void parseMacroValue() {
+        // tokenContent looks like: "define MACRONAME macrovalue"
+        String tokenContent = fScanner.getTokenContent(cToken);
+        
+        int index = tokenContent.lastIndexOf(' '); 
+        String valueStr = tokenContent.substring(index+1);
+        int offset = fScanner.getTokenOffset() + index + 1;
+        
+        // may be identifier
+        if (valueStr.matches(C_IDENTIFIER)) {
+            fStringContainer.put(offset, valueStr);
+        }
+        // must be a number, may have leading '(' 
+        else {
+            if (valueStr.startsWith("(")) {
+                valueStr = valueStr.substring(1);
+                offset++;
+            }
+            fStringContainer.put(offset, valueStr);
+        }
+        getNextToken();
+    }
+
+	protected IConfigWizardItem parseTool(IConfigWizardItem item) {
+		item.setName("Tool");
+		String tokenContent = fScanner.getTokenContent(cToken);
+		// parse tool after ':'
+		int index = tokenContent.indexOf(":");
+		String toolId = tokenContent.substring(index+1);
+		item.setString(toolId);
+		fStringContainer.put(fScanner.getTokenOffset() + 2, tokenContent.substring(3, tokenContent.length()));
+		getNextToken();
+		return item;
+	}
+
 	private long parseNumber(IConfigWizardItem item, String number) {
 		int radix = 10;
 		number = number.toLowerCase();
@@ -676,7 +776,8 @@ public class ConfigWizardParser {
 	protected void syntaxError() {
 		fParsingErrorOffset = fScanner.getTokenOffset();
 		int line = fScanner.getCurrentLineNumber();
-		Display.getDefault().asyncExec(() -> MessageDialog.openError(Display.getDefault().getActiveShell(),
+		if (showErrorDialog)
+		    Display.getDefault().asyncExec(() -> MessageDialog.openError(Display.getDefault().getActiveShell(),
 				Messages.ConfigWizardParser_ErrorInConfigWizard,
 				Messages.ConfigWizardParser_SyntaxErrorAtLine + (line + 1) + ": " + fParsingErrorMessage)); //$NON-NLS-1$
 	}
@@ -774,6 +875,8 @@ public class ConfigWizardParser {
 			return Messages.ConfigWizardParser_Number;
 		case STRING:
 			return Messages.ConfigWizardParser_String;
+        case MACROVALUE:
+            return Messages.ConfigWizardParser_MacroValue;
 		default:
 			return Messages.ConfigWizardParser_Unknown;
 		}
@@ -800,13 +903,18 @@ public class ConfigWizardParser {
 		long mask = buildMask(minBit, maxBit);
 
 		EItemType type = item.getItemType();
+		if (type == EItemType.OPTION_SELECT && item.hasIdentifierItems())
+		    type = EItemType.OPTION_STRING;
+		
 		switch (type) {
 		case HEADING_ENABLE:
 		case OPTION:
 		case OPTION_CHECK:
 		case OPTION_SELECT:
-			Collection<String> numbers = fNumberContainer.tailMap(offset).values();
+			Collection<String> numbers = fStringContainer.tailMap(offset).values();
 			Iterator<String> iter = numbers.iterator();
+			if (type == EItemType.OPTION)
+				iter = fStringContainer.tailMap(offset).values().iterator();
 			String valueText = ""; //$NON-NLS-1$
 			long value = 0;
 			while (iter.hasNext() && skip >= 0) {
@@ -842,7 +950,7 @@ public class ConfigWizardParser {
 				return;
 			}
 			item.setItemErrorType(EItemErrorType.NO_ERROR);
-			item.setString(str);
+			item.setIdentifierValue(str);
 			break;
 		default:
 			break;
@@ -988,6 +1096,7 @@ public class ConfigWizardParser {
 			&& item.getItems().get(item.getValue()).equals(value)) {
 				return;
 			}
+			// integer items
 			for (Entry<Long, String> entry : item.getItems().entrySet()) {
 				if (entry.getValue().equals(value)) {
 					item.setValue(entry.getKey());
@@ -995,6 +1104,14 @@ public class ConfigWizardParser {
 					return;
 				}
 			}
+			// identifier items
+            for (Entry<String, String> entry : item.getIdentifierItems().entrySet()) {
+                if (entry.getValue().equals(value)) {
+                    item.setIdentifierValue(entry.getKey());
+                    updateDocument(item, entry.getKey());
+                    return;
+                }
+            }
 			break;
 		case OPTION:
 			int radix = item.getBase();
@@ -1066,7 +1183,9 @@ public class ConfigWizardParser {
 			// Heading_enable, Option, Option_enable, Option_select
 			else if (newVal instanceof Integer || newVal instanceof Long || newVal instanceof Boolean) {
 				// find the offset of the value corresponding to the item
-				Set<Entry<Integer, String>> map = fNumberContainer.tailMap(startOffset).entrySet();
+				TreeMap<Integer, String> container = fNumberContainer;
+				container = fStringContainer;
+				Set<Entry<Integer, String>> map = container.tailMap(startOffset).entrySet();
 				int i = 0;
 				int valueOffset = -1;
 				String oldValue = ""; //$NON-NLS-1$
@@ -1121,8 +1240,8 @@ public class ConfigWizardParser {
 					newText = sb.toString();
 				}
 				updateIndex(valueOffset, newText.length() - oldValueLength);
-				fNumberContainer.remove(valueOffset);
-				fNumberContainer.put(valueOffset, newText);
+				container.remove(valueOffset);
+				container.put(valueOffset, newText);
 				fDocument.replace(valueOffset, oldValueLength, newText);
 			}
 			// Option_string
@@ -1149,8 +1268,15 @@ public class ConfigWizardParser {
 				updateIndex(valueOffset, newText.length() - oldValueLength);
 				fStringContainer.remove(valueOffset);
 				fStringContainer.put(valueOffset, newText);
-				// consider the double quote here
-				fDocument.replace(valueOffset - 1, oldValueLength + 2, "\"" + newText + "\""); //$NON-NLS-1$ //$NON-NLS-2$
+				
+				if (item.getIdentifierValue() != null)
+				{
+                    fDocument.replace(valueOffset, oldValueLength, newText); //$NON-NLS-1$ //$NON-NLS-2$
+				}
+				else {
+    				// consider the double quote here
+    				fDocument.replace(valueOffset - 1, oldValueLength + 2, "\"" + newText + "\""); //$NON-NLS-1$ //$NON-NLS-2$
+				}
 			}
 		} catch (BadLocationException e) {
 			e.printStackTrace();

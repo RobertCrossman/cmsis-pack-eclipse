@@ -12,6 +12,7 @@
 package com.arm.cmsis.config.model;
 
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.TreeMap;
@@ -32,10 +33,12 @@ public class ConfigWizardItem implements IConfigWizardItem {
 	private int fSkipNumber;
 	private int fMinBit;
 	private int fMaxBit;
+	private String fIdentifier;
 	private boolean fSelection;
 	private long fMinValue;
 	private long fMaxValue;
 	private long fValue;
+    private String fIdentifierValue;
 	private String fString;
 	private int fStringLength;
 	private int fBase;
@@ -44,7 +47,8 @@ public class ConfigWizardItem implements IConfigWizardItem {
 	private long fModifier;
 	private boolean fInconsistent;
 	private boolean fInvertValue;
-	private Map<Long, String> fItems;
+    private Map<Long, String> fItems;
+    private Map<String, String> fIdentifierItems;
 	private LinkedList<IConfigWizardItem> fChildren;
 
 	/**
@@ -61,10 +65,13 @@ public class ConfigWizardItem implements IConfigWizardItem {
 		fString = ""; //$NON-NLS-1$
 		fMinBit = -1;
 		fMaxBit = -1;
+		fIdentifier = null;
+		fIdentifierValue = null;
 		fBase = 16;
 		fModifier = 0;
 		fSpinStep = 0;
-		fItems = new TreeMap<>();
+        fItems = new TreeMap<>();
+        fIdentifierItems = new LinkedHashMap<>();
 		fChildren = new LinkedList<>();
 	}
 
@@ -161,6 +168,16 @@ public class ConfigWizardItem implements IConfigWizardItem {
 		fMaxBit = maxBit;
 	}
 
+	@Override
+	public String getIdentifier() {
+	    return fIdentifier;
+	}
+
+	@Override
+	public void setIdentifier(String id) {
+	    fIdentifier = id;
+	}
+	
 	@Override
 	public boolean isSelection() {
 		return fSelection;
@@ -291,6 +308,36 @@ public class ConfigWizardItem implements IConfigWizardItem {
 		fItems.put(key, value);
 	}
 
+    @Override
+    public boolean hasItems() {
+        return fItems.size() > 0;
+    }
+
+    @Override
+    public Map<String, String> getIdentifierItems() {
+        return fIdentifierItems;
+    }
+
+    @Override
+    public void addIdentifierItem(String key, String value) {
+        fIdentifierItems.put(key, value);
+    }
+
+    @Override
+    public boolean hasIdentifierItems() {
+        return fIdentifierItems.size() > 0;
+    }
+
+    @Override
+    public void setIdentifierValue(String value) {
+        fIdentifierValue = value;
+    }
+    
+    @Override
+    public String getIdentifierValue() {
+        return fIdentifierValue;
+    }
+    
 	@Override
 	public Collection<IConfigWizardItem> getChildren() {
 		return fChildren;

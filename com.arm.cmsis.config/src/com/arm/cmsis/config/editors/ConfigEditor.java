@@ -36,6 +36,7 @@ import org.eclipse.jface.action.ActionContributionItem;
 import org.eclipse.jface.action.IAction;
 import org.eclipse.jface.action.ToolBarManager;
 import org.eclipse.jface.dialogs.ErrorDialog;
+import org.eclipse.jface.layout.TreeColumnLayout;
 import org.eclipse.jface.resource.FontDescriptor;
 import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.jface.text.DocumentEvent;
@@ -45,6 +46,8 @@ import org.eclipse.jface.text.IRegion;
 import org.eclipse.jface.viewers.ColumnLabelProvider;
 import org.eclipse.jface.viewers.ColumnViewer;
 import org.eclipse.jface.viewers.ColumnViewerToolTipSupport;
+import org.eclipse.jface.viewers.ColumnWeightData;
+import org.eclipse.jface.viewers.EditingSupport;
 import org.eclipse.jface.viewers.ISelectionProvider;
 import org.eclipse.jface.viewers.ITreeContentProvider;
 import org.eclipse.jface.viewers.TreeViewer;
@@ -130,10 +133,10 @@ public class ConfigEditor extends MultiPageEditorPart implements IResourceChange
     boolean fNeedReparse;
 
     /** The tree viewer */
-    TreeViewer fViewer;
+    protected TreeViewer fViewer;
 
     /** The second column's advisor */
-    private IColumnAdvisor fColumnAdvisor;
+    protected IColumnAdvisor fColumnAdvisor;
 
     /** The tooltip text */
     private StyledText fText;
@@ -704,9 +707,21 @@ public class ConfigEditor extends MultiPageEditorPart implements IResourceChange
                     item.getMaxValue(), item.getMinValue());
 
             if (type == CellControlType.MENU) {
+            	if (item.hasItems()) {
                 Map<Long, String> items = item.getItems();
                 if (items.containsKey(realValue)) {
                     return items.get(realValue);
+	                }
+            	}
+            	else if (item.hasIdentifierItems()) {
+            		String idValue = item.getIdentifierValue();
+            		if (item.getIdentifierValue() != null)
+            		{
+            			if (item.getIdentifierItems().containsKey(idValue))
+            				return idValue;
+            		}
+            		Map<String, String> items = item.getIdentifierItems();
+            		return items.get(0);
                 }
                 return "<<< Invalid Index >>>"; //$NON-NLS-1$
             }
@@ -746,13 +761,29 @@ public class ConfigEditor extends MultiPageEditorPart implements IResourceChange
             IConfigWizardItem item = getConfigWizardItem(element);
             // This is selection
             if (item.getItemType() == EItemType.OPTION_SELECT) {
-                long key = item.getValue();
-                int i = 0;
-                for (Long k : item.getItems().keySet()) {
-                    if (k == key) {
-                        return i;
+            	// integer items
+                if (item.hasItems())
+	            {
+                    long key = item.getValue();
+                    int i = 0;
+                    for (Long k : item.getItems().keySet()) {
+                        if (k == key) {
+                            return i;
+                        }
+                        i++;
                     }
-                    i++;
+                }
+                // identifier items
+                else if (item.hasIdentifierItems())
+                {
+                	String id = item.getIdentifierValue();
+	                int i = 0;
+	                for (String key : item.getIdentifierItems().keySet()) {
+	                    if (key.equals(id)) {
+	                        return i;
+	                    }
+	                    i++;
+	                }	
                 }
                 return 0;
             }
@@ -775,7 +806,13 @@ public class ConfigEditor extends MultiPageEditorPart implements IResourceChange
         public String[] getStringArray(Object obj, int columnIndex) {
             IConfigWizardItem item = getConfigWizardItem(obj);
             Assert.isTrue(item.getItemType() == EItemType.OPTION_SELECT);
-            Collection<String> str = item.getItems().values();
+            // integer items
+            if (item.hasItems()) {
+                Collection<String> str = item.getItems().values();
+	            return str.toArray(new String[str.size()]);
+            }
+            // identifier items
+            Collection<String> str = item.getIdentifierItems().values();
             return str.toArray(new String[str.size()]);
         }
 
@@ -831,7 +868,12 @@ public class ConfigEditor extends MultiPageEditorPart implements IResourceChange
     }
 
     private void buildTreeViewer(Composite parent) {
-        fViewer = new TreeViewer(parent, SWT.FULL_SELECTION | SWT.BORDER |
+    	Composite treeComp = new Composite(parent, SWT.NONE);
+        treeComp.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 3, 1));
+        TreeColumnLayout layout = new TreeColumnLayout();
+		treeComp.setLayout(layout);
+        
+        fViewer = new TreeViewer(treeComp, SWT.FULL_SELECTION | SWT.BORDER |
                 SWT.H_SCROLL | SWT.V_SCROLL);
         Tree tree = fViewer.getTree();
         tree.setLayoutData(new GridData(SWT.FILL, SWT.FILL, true, true, 3, 1));
@@ -854,18 +896,19 @@ public class ConfigEditor extends MultiPageEditorPart implements IResourceChange
 
         TreeViewerColumn column0 = new TreeViewerColumn(fViewer, SWT.LEFT);
         column0.getColumn().setText(Messages.ConfigEditor_Option);
-        column0.getColumn().setWidth(320);
+        layout.setColumnData(column0.getColumn(), new ColumnWeightData(60));
         column0.setLabelProvider(new FirstColumnLabelProvider());
 
         TreeViewerColumn column1 = new TreeViewerColumn(fViewer, SWT.LEFT);
         column1.getColumn().setText(Messages.ConfigEditor_Value);
-        column1.getColumn().setWidth(100);
-        column1.setEditingSupport(new AdvisedEditingSupport(fViewer, fColumnAdvisor, COLEDIT));
+        layout.setColumnData(column1.getColumn(), new ColumnWeightData(35));
+        EditingSupport editingSupport = createEditingSupport(COLEDIT);
+		column1.setEditingSupport(editingSupport);
         column1.setLabelProvider(new AdvisedCellLabelProvider(fColumnAdvisor, COLEDIT));
 
         // Add an empty column and adjust its width automatically for better looking
         TreeViewerColumn column2 = new TreeViewerColumn(fViewer, SWT.LEFT);
-        column2.getColumn().setWidth(1);
+        layout.setColumnData(column2.getColumn(), new ColumnWeightData(5));
         column2.setLabelProvider(new ColumnLabelProvider() {
             @Override
             public String getText(Object element) {
@@ -873,44 +916,16 @@ public class ConfigEditor extends MultiPageEditorPart implements IResourceChange
             }
         });
 
-        if (System.getProperty("os.name").startsWith("Windows")) { //$NON-NLS-1$ //$NON-NLS-2$
-            parent.addControlListener(new ControlAdapter() {
-                @Override
-                public void controlResized(ControlEvent e) {
-                    Tree tree = (Tree) fViewer.getControl();
-                    Rectangle area = parent.getClientArea();
-                    Point preferredSize = tree.computeSize(SWT.DEFAULT, SWT.DEFAULT);
-                    int width = area.width - 2*tree.getBorderWidth();
-                    if (preferredSize.y > tree.getBounds().height) {
-                        // Subtract the scrollbar width from the total column width
-                        // if a vertical scrollbar will be required
-                        Point vBarSize = tree.getVerticalBar().getSize();
-                        width -= vBarSize.x;
-                    }
-                    Point oldSize = tree.getSize();
-                    if (oldSize.x > area.width) {
-                        // tree is getting smaller so make the columns
-                        // smaller first and then resize the tree to
-                        // match the client area width
-                        column2.getColumn().setWidth(Math.max(0, width - column0.getColumn().getWidth() -
-                                column1.getColumn().getWidth() - 10));
-                        tree.setSize(area.width, area.height);
-                    } else {
-                        // tree is getting bigger so make the tree
-                        // bigger first and then make the columns wider
-                        // to match the client area width
-                        tree.setSize(area.width, area.height);
-                        column2.getColumn().setWidth(Math.max(0, width - column0.getColumn().getWidth() -
-                                column1.getColumn().getWidth() - 10));
-                    }
-                }
-            });
-        }
 
         fViewer.setContentProvider(new ContentProvider());
         fViewer.setInput(fParser.getConfigWizardRoot());
 
         ColumnViewerToolTipSupport.enableFor(fViewer);
+    }
+
+    protected EditingSupport createEditingSupport(int columnIndex) {
+        AdvisedEditingSupport editingSupport = new AdvisedEditingSupport(fViewer, fColumnAdvisor, columnIndex);
+        return editingSupport;
     }
 
     void setCursorAndRevealAt(int line) {
